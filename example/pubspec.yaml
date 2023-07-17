@@ -14,7 +14,7 @@ dependencies:
     sdk: flutter
   flutter_compass: ^0.7.0
   flutter_joystick: ^0.0.3
-  flutter_map: ^5.0.0
+  flutter_map: any
   flutter_map_location_marker:
     path: ../
   geolocator: ^9.0.2
@@ -24,11 +24,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   lint: ^2.1.2
-
-dependency_overrides:
-  flutter_map:
-    git:
-      url: https://github.com/fleaflet/flutter_map.git
 
 flutter:
   uses-material-design: true
