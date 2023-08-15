@@ -12,6 +12,9 @@ import 'exception/permission_denied_exception.dart' as lm;
 import 'exception/permission_requesting_exception.dart' as lm;
 import 'exception/service_disabled_exception.dart';
 
+/// Signature for callbacks of permission request.
+typedef RequestPermissionCallback = FutureOr<LocationPermission> Function();
+
 /// Helper class for converting the data stream which provide data in required
 /// format from stream created by some existing plugin.
 class LocationMarkerDataStreamFactory {
@@ -46,31 +49,38 @@ class LocationMarkerDataStreamFactory {
 
   /// Create a position stream which is used as default value of
   /// [CurrentLocationLayer.positionStream].
-  Stream<Position?> defaultPositionStreamSource() {
+  Stream<Position?> defaultPositionStreamSource({
+    RequestPermissionCallback? requestPermissionCallback =
+        Geolocator.requestPermission,
+  }) {
     final List<AsyncCallback> cancelFunctions = [];
-    final streamController = StreamController<Position?>.broadcast(
-      onCancel: () =>
-          Future.wait(cancelFunctions.map((callback) => callback())),
-    );
+    final streamController = StreamController<Position?>.broadcast();
     streamController.onListen = () async {
       try {
         LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
+        if (permission == LocationPermission.denied &&
+            requestPermissionCallback != null) {
           streamController.sink
               .addError(const lm.PermissionRequestingException());
-          permission = await Geolocator.requestPermission();
+          permission = await requestPermissionCallback();
         }
         switch (permission) {
           case LocationPermission.denied:
           case LocationPermission.deniedForever:
+            if (streamController.isClosed) {
+              break;
+            }
             streamController.sink
-              ..addError(const lm.PermissionDeniedException())
-              ..close();
+                .addError(const lm.PermissionDeniedException());
+            streamController.close();
           case LocationPermission.whileInUse:
           case LocationPermission.always:
             try {
               final serviceEnabled =
                   await Geolocator.isLocationServiceEnabled();
+              if (streamController.isClosed) {
+                break;
+              }
               if (!serviceEnabled) {
                 streamController.sink
                     .addError(const ServiceDisabledException());
@@ -90,12 +100,19 @@ class LocationMarkerDataStreamFactory {
             } catch (_) {}
             try {
               final lastKnown = await Geolocator.getLastKnownPosition();
+              if (streamController.isClosed) {
+                break;
+              }
               if (lastKnown != null) {
                 streamController.sink.add(lastKnown);
               }
             } catch (_) {}
             try {
-              streamController.sink.add(await Geolocator.getCurrentPosition());
+              final position = await Geolocator.getCurrentPosition();
+              if (streamController.isClosed) {
+                break;
+              }
+              streamController.sink.add(position);
             } catch (_) {}
             final subscription =
                 Geolocator.getPositionStream().listen((position) {
@@ -108,6 +125,10 @@ class LocationMarkerDataStreamFactory {
       } on PermissionDefinitionsNotFoundException {
         streamController.sink.addError(const IncorrectSetupException());
       }
+    };
+    streamController.onCancel = () async {
+      Future.wait(cancelFunctions.map((callback) => callback()));
+      await streamController.close();
     };
     return streamController.stream;
   }
